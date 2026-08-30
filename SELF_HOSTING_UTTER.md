@@ -146,12 +146,44 @@ docker compose pull && docker compose up -d
 - **文件**：`backend_uploads` 卷（附件等），`docker volume` 层面快照或 rsync
 - 备份是卷删除事故的唯一最终兜底；参考上游 `SELF_HOSTING.md` 的备份章节的完整清单
 
-## 客户端分发（CLI / daemon）
+## 客户端分发（桌面端 / CLI / daemon）
 
-multica 的 AI 执行在用户本机：用户安装 `multica` CLI + daemon（检测本机 Claude Code / Codex 等 agent CLI），daemon 通过 `wss://<域名>/ws` 注册到私有 server。私有化交付必须包含：
+multica 的 AI 执行在用户本机：用户安装桌面端（含 CLI/daemon）或独立 CLI，daemon 通过 `wss://<域名>/ws` 注册到私有 server。**客户端是通用安装包，无需重新打包**——通过运行时配置指向私有服务器。
 
-- CLI 二进制分发：GitHub Release（fork 出产物）或自建下载站；`scripts/install.sh` 支持指向私有 server
+### 桌面端：`~/.multica/desktop.json`
+
+在每台客户机的用户目录下创建（`apps/desktop/src/main/runtime-config-loader.ts`）：
+
+```json
+{
+  "schemaVersion": 1,
+  "apiUrl": "https://dev-c.geoclar.com"
+}
+```
+
+- **`apiUrl`（必填）**：私有服务器地址。路径走 web 容器 rewrites 转发 `/v1` `/ws` 到 backend，与浏览器同路径，无需额外反代
+- **`wsUrl`（可省略）**：自动从 apiUrl 推导（`https:` → `wss://<host>/ws`）
+- **`appUrl`（可省略）**：自动推导；不匹配 `api.<host>` 约定的域名（如 `dev-c.geoclar.com`）原样返回 apiUrl
+- **加载逻辑**：文件存在则解析生效；文件不存在回退官方云（`https://api.multica.ai`）；JSON 非法则启动失败并在错误中提示文件路径
+- **生效**：改完重启应用
+
+### 桌面端内嵌 CLI / daemon：自动跟随
+
+桌面端内嵌的 `multica` CLI + daemon 使用 renderer 上报的 `apiUrl` 启动 Desktop profile（`daemon-manager.ts`），配好 `desktop.json` 后内嵌 CLI 自动连私有服务器，无需额外操作。
+
+### 独立 CLI：`multica config set server_url`
+
+```bash
+multica config set server_url https://dev-c.geoclar.com
+```
+
+优先级：`--server-url` flag > `MULTICA_SERVER_URL` 环境变量 > 存储的 CLI 配置（`cmd_daemon.go`）。
+
+### 交付清单
+
+- CLI 二进制 / 安装包分发：GitHub Release（fork 出产物）或自建下载站；`scripts/install.sh` 支持指向私有 server
 - 内网客户（无外网）：CLI 与 agent CLI 需离线安装包
+- 交付文档注明：`desktop.json` 格式与"重启生效"；写坏会导致应用启动失败
 - 完整说明见上游 `CLI_AND_DAEMON.md` / `CLI_INSTALL.md`
 
 ## 风险与合规
