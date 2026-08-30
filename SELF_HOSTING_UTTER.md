@@ -7,7 +7,7 @@
 
 | 资源 | 值 | 说明 |
 |---|---|---|
-| SIT 服务器 | `root@39.105.35.182` | 与 utter-office 共用同一台（阿里云 ECS + 宝塔面板） |
+| SIT 服务器 | 与 utter-office 共用同一台（阿里云 ECS + 宝塔面板；地址见 utter-office 仓库 `deploy-sit.sh`，部署时通过 `SIT_HOST` 环境变量注入） |
 | Compose 目录 | `/www/server/panel/data/compose/multica` | **独立目录**，与 utter-office 的 `.../compose/utter-office` 分开 |
 | 镜像仓库（ACR） | `registry.cn-hangzhou.aliyuncs.com/nothing/multica-backend` / `.../multica-web` | 与 utter-office 共用 ACR 账号/命名空间 |
 | 镜像仓库（GHCR） | `ghcr.io/utter-office/multica-backend` / `.../multica-web` | 备份通道，国内服务器优先走 ACR |
@@ -52,7 +52,9 @@
 ### 1. 准备 compose 目录
 
 ```bash
-ssh root@39.105.35.182 "mkdir -p /www/server/panel/data/compose/multica"
+# SIT_HOST 从环境变量注入，不在公开仓库硬编码服务器 IP
+export SIT_HOST=root@<your-server>
+ssh "$SIT_HOST" "mkdir -p /www/server/panel/data/compose/multica"
 ```
 
 上传 `docker-compose.selfhost.yml`、`.env.example` 到该目录（**不是** `utter-office` 目录）。
@@ -71,7 +73,7 @@ ssh root@39.105.35.182 "mkdir -p /www/server/panel/data/compose/multica"
 | `CORS_ALLOWED_ORIGINS` | ✅ | 同上；漏配会导致 WS 403、realtime 失效 |
 | `MULTICA_TRUSTED_PROXIES` | ✅ | 反代所在网段（CIDR），webhook 限流信任 `X-Forwarded-For` 必需 |
 | `ALLOW_SIGNUP` / `ALLOWED_EMAIL_DOMAINS` | 建议 | 私有化建议限定企业邮箱域名注册 |
-| `BACKEND_PORT` / `FRONTEND_PORT` | 冲突时 | 默认 8080 / 3000（仅回环），与 utter-office 的 8083 / 8003 不冲突；被占才调整 |
+| `BACKEND_PORT` / `FRONTEND_PORT` | 冲突时 | 默认 8080 / 3000（仅回环）；SIT 上 8080 被 geoclar 占用，实际使用 `BACKEND_PORT=8084` |
 | `S3_BUCKET` + `AWS_ENDPOINT_URL` | 可选 | 默认本地磁盘卷 `backend_uploads`，量大再上 MinIO |
 | `MULTICA_LLM_*` | 可选 | 不配则服务端「自动标题/建议问题」静默关闭，不影响核心流程 |
 | `REDIS_URL` / `REALTIME_RELAY_*` | 可选 | 单实例不配 |
@@ -101,8 +103,9 @@ cd /www/server/panel/data/compose/multica
 docker compose pull
 docker compose up -d
 # 等待就绪（backend 容器启动时自动执行 ./migrate up，无需手动 SQL）
-curl -s http://127.0.0.1:8080/readyz    # {"status":"ok","checks":{"db":"ok","migrations":"ok"}}
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/   # 200
+# 端口从 .env 读：SIT 实际为 8084（8080 被 geoclar 占用）
+curl -s "http://127.0.0.1:${BACKEND_PORT:-8080}/readyz"    # {"status":"ok","checks":{"db":"ok","migrations":"ok"}}
+curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:${FRONTEND_PORT:-3000}/"   # 200
 ```
 
 浏览器端到端验证：域名登录（邮箱验证码）→ 建 workspace → 本机装 CLI 连 `/ws`。
