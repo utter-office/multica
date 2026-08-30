@@ -1,0 +1,164 @@
+name: CI
+
+# multica fork 镜像构建（仿 utter-office/utter-office 的 docker-build.yml）
+# push utter-main / tag v* → go test + docker buildx 双推 GHCR + 阿里云 ACR（供 SIT / 客户私有化部署拉取）
+# 上游 release.yml 的镜像发布有 github.repository_owner == 'multica-ai' 守卫，fork 不会出镜像，因此本 workflow 独立产出。
+on:
+  push:
+    branches: [utter-main]
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  ALIYUN_REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  # 与 utter-office 共用 ACR 命名空间（同一账号资源）
+  ALIYUN_IMAGE_BACKEND: registry.cn-hangzhou.aliyuncs.com/nothing/multica-backend
+  ALIYUN_IMAGE_WEB: registry.cn-hangzhou.aliyuncs.com/nothing/multica-web
+  GO_VERSION: '1.26'
+
+jobs:
+  # ─── push: 仅运行 Go 测试（后端质量门禁；前端测试走上游 ci.yml） ───
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: server/go.sum
+
+      - name: Run tests
+        working-directory: server
+        run: go test ./... -count=1
+
+  # ─── push: 构建 & 推送 backend 镜像 ───
+  build-and-push-backend:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Alibaba Cloud Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}/multica-backend
+            ${{ env.ALIYUN_IMAGE_BACKEND }}
+          # sha 前缀 tag 用于部署回滚；部署时固定 MULTICA_IMAGE_TAG，不要用 latest
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Multica Backend
+            org.opencontainers.image.description=Multica self-hosted backend (utter-office fork)
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          pull: true
+          platforms: linux/amd64
+          push: true
+          # 阿里云 ACR 拒绝 provenance 空 OCI manifest（application/vnd.oci.empty.v1+json），
+          # 禁用 attestation 保证双 registry 推送兼容（同 utter-office）
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+
+  # ─── push: 构建 & 推送 web 镜像 ───
+  build-and-push-web:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Alibaba Cloud Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}/multica-web
+            ${{ env.ALIYUN_IMAGE_WEB }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Multica Web
+            org.opencontainers.image.description=Multica self-hosted web frontend (utter-office fork)
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.web
+          pull: true
+          platforms: linux/amd64
+          push: true
+          # ACR 兼容，同上
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ github.ref_name }}
