@@ -11,7 +11,7 @@
 | Compose 目录 | `/www/server/panel/data/compose/multica` | **独立目录**，与 utter-office 的 `.../compose/utter-office` 分开 |
 | 镜像仓库（ACR） | `registry.cn-hangzhou.aliyuncs.com/nothing/multica-backend` / `.../multica-web` | 与 utter-office 共用 ACR 账号/命名空间 |
 | 镜像仓库（GHCR） | `ghcr.io/utter-office/multica-backend` / `.../multica-web` | 备份通道，国内服务器优先走 ACR |
-| SIT 域名 | `http://utter.geoclar.com` | 宝塔 nginx 反代到 127.0.0.1:3000（与 utter-office 同主域 geoclar.com） |
+| SIT 域名 | `http://dev-c.geoclar.com` | 宝塔 nginx 反代到 127.0.0.1:3000（与 utter-office 的 dev-a/dev-b 同主域 geoclar.com） |
 | SIT 端口 | backend `8084` / frontend `3000`（均仅回环） | 8080 被 geoclar 的 CTUPortal 占用、8083/8003 是 utter-office 的 |
 | 反向代理 | 宝塔 nginx（Docker 网站代理） | 与 utter-office 同域名体系，新增一个站点 |
 
