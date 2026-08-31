@@ -17,9 +17,12 @@ FROM node:22-slim
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # git + certs + Claude Code deps (rg/jq) + SSH repos + large files + tini
+# bubblewrap: Claude Code's workspace-write sandbox backend (container runs
+# with seccomp=unconfined, see docker-compose.selfhost.yml)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates curl jq ripgrep \
       openssh-client git-lfs \
+      bubblewrap \
       tini \
     && apt-get purge -y curl \
     && rm -rf /var/lib/apt/lists/*

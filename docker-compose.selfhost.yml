@@ -248,6 +248,11 @@ services:
       - executor_config:/root/.multica
       - executor_workspaces:/workspaces
       - executor_claude:/root/.claude
+    # bubblewrap needs namespace syscalls Docker's default seccomp blocks.
+    # The container is a dedicated execution sandbox; bwrap then enforces the
+    # per-task workspace-write sandbox inside it.
+    security_opt:
+      - seccomp=unconfined
     restart: unless-stopped
 
 volumes:
