@@ -186,6 +186,95 @@ multica config set server_url https://dev-c.geoclar.com
 - 交付文档注明：`desktop.json` 格式与"重启生效"；写坏会导致应用启动失败
 - 完整说明见上游 `CLI_AND_DAEMON.md` / `CLI_INSTALL.md`
 
+## Agent Executor（可选：容器化 agent 执行器）
+
+把 multica daemon + Claude Code + GitHub CLI 装进一个容器，作为 agent 的**集中执行环境**——客户无需在每台机器装 CLI/daemon，任务在服务器侧容器内执行。
+
+### 架构
+
+```
+compose 网络内直连（免 nginx/TLS/域名）
+executor 容器 ──http://backend:8080──▶ backend（wss 注册/领任务）
+  ├─ multica CLI + daemon（--foreground，tini 管理）
+  ├─ Claude Code（DeepSeek 路由：ANTHROPIC_BASE_URL）
+  └─ gh CLI（GH_TOKEN 凭据，git 提交身份 utter.office）
+```
+
+- multica CLI 从 **backend 镜像 COPY**（`deploy/executor/Dockerfile` 多阶段）——daemon 与 server 版本天然一致
+- 镜像由 CI 构建双推 ACR（`docker-build.yml` 的 `build-and-push-executor` job，依赖 backend job 完成后构建）
+- 卷：`executor_config`（登录态/配置）、`executor_workspaces`（任务工作目录）、`executor_claude`（Claude 会话）
+
+### compose 服务段（已合入 docker-compose.selfhost.yml）
+
+```yaml
+executor:
+  image: ${MULTICA_EXECUTOR_IMAGE:-ghcr.io/utter-office/multica-executor}:${MULTICA_IMAGE_TAG:-latest}
+  depends_on:
+    backend:
+      condition: service_started
+  environment:
+    MULTICA_SERVER_URL: ${MULTICA_SERVER_URL:-http://backend:8080}
+    MULTICA_PAT: ${MULTICA_PAT:?MULTICA_PAT must be set — create a personal token in the web UI}
+    MULTICA_WORKSPACES_ROOT: /workspaces
+    MULTICA_DAEMON_AUTO_UPDATE: "false"
+    GH_TOKEN: ${GH_TOKEN:?GH_TOKEN must be set — GitHub PAT with repo write scopes}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set for headless Claude Code}
+    ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+    ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+    ANTHROPIC_DEFAULT_OPUS_MODEL: ${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
+    ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+    CLAUDE_CODE_SUBAGENT_MODEL: ${CLAUDE_CODE_SUBAGENT_MODEL:-}
+  volumes:
+    - executor_config:/root/.multica
+    - executor_workspaces:/workspaces
+    - executor_claude:/root/.claude
+  restart: unless-stopped
+```
+
+### `.env` 变量
+
+| 变量 | 必填 | 说明 |
+|---|---|---|
+| `MULTICA_PAT` | ✅ | executor 以成员身份注册（web → 个人设置 → token，`mul_` 开头） |
+| `GH_TOKEN` | ✅ | GitHub PAT（`repo` 写权限），容器内 git 提交/PR 认证 |
+| `ANTHROPIC_API_KEY` | ✅ | LLM provider key（DeepSeek 场景为 DeepSeek key） |
+| `ANTHROPIC_BASE_URL` | 可选 | 默认空（Anthropic 原生）；DeepSeek：`https://api.deepseek.com/anthropic` |
+| `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` | 可选 | 模型映射；SIT 全 flash：`deepseek-v4-flash` |
+
+### DeepSeek 路由（全 flash 示例）
+
+```bash
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+ANTHROPIC_MODEL=deepseek-v4-flash
+ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-flash
+ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-flash
+ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
+CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
+```
+
+### 部署与验证
+
+```bash
+docker compose -f docker-compose.selfhost.yml up -d executor
+# 验证 1：容器稳定运行（Up，非 Restarting）
+docker compose -f docker-compose.selfhost.yml ps executor
+# 验证 2：环境（版本对齐 + 认证 + 模型路由）
+docker exec multica-executor-1 sh -c "multica --version; claude --version; gh auth status; echo \$ANTHROPIC_BASE_URL"
+# 验证 3：backend 日志出现 executor 的 runtime heartbeat
+docker compose -f docker-compose.selfhost.yml logs backend | grep "daemon heartbeat"
+# 验证 4（端到端）：web 建 agent（选 executor 注册的 runtime）→ 指派任务 → 观察执行与 git 提交
+```
+
+### 已知要点（踩坑记录）
+
+- **`daemon start` 默认后台化**——容器场景必须 `--foreground`（entrypoint 已处理），否则容器主进程退出 → Restarting 循环
+- **`gh auth login --with-token` 在 `GH_TOKEN` 环境变量模式下返回非零**——entrypoint 用非阻塞 `gh auth status` 验证（GH_TOKEN 已自动生效，无需持久化）
+- **multica CLI 必须与 server 同版本**——从自家 backend 镜像 COPY（不要用官方 Release 产物或社区镜像里带的官方 CLI）
+- **`.dockerignore` 会排除 `/deploy/`**——镜像构建需要 `!/deploy/executor/` 放行（已配置）
+- 镜像默认源建议 ACR（国内服务器拉取）；compose 默认是 GHCR，服务器 `.env` 需设 `MULTICA_EXECUTOR_IMAGE=registry.cn-hangzhou.aliyuncs.com/nothing/multica-executor`
+- 社区基础镜像（`ghcr.io/sapk/multica-agent-claude`）工具链更全（Podman/Playwright），但 multica CLI 版本不匹配且无 gh——如切换需覆盖 multica CLI 并加 gh 定制层
+
 ## 风险与合规
 
 1. **License（最高优先级）**：本项目为 Multica License（Apache 2.0 + 附加条件）——**内部单组织使用免费；向第三方提供托管服务（即使免费）需商业授权；UI 不可去品牌化**（移除 LOGO 需书面 waiver）。对外交付前必须先确认形态
