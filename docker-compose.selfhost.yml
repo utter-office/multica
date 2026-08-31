@@ -240,6 +240,7 @@ services:
       # DeepSeek Harness runtime: model id from the dsh catalog
       # (e.g. deepseek-official/deepseek-chat)
       MULTICA_DSH_MODEL: ${MULTICA_DSH_MODEL:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set for the dsh runtime}
     volumes:
       - executor_config:/root/.multica
       - executor_workspaces:/workspaces
