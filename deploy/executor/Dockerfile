@@ -30,6 +30,10 @@ COPY --from=multica /app/multica /usr/local/bin/multica
 # Claude Code（agent 执行器；如需锁定版本改为 @anthropic-ai/claude-code@<version>）
 RUN npm install -g @anthropic-ai/claude-code
 
+# DeepSeek Harness（dsh，DeepSeek 原生 agent CLI；developer preview，迭代快）
+# multica runtime profile 需在首次启动时安装（dsh --profile multica --stdio），见 entrypoint
+RUN npm install -g @deepseek-ai/dsh
+
 # GitHub CLI（git 提交/PR 凭据；版本锁定）
 ADD https://github.com/cli/cli/releases/download/v2.74.0/gh_2.74.0_linux_amd64.tar.gz /tmp/
 RUN tar xzf /tmp/gh_*.tar.gz -C /usr/local --strip-components=1 && rm /tmp/gh_*.tar.gz

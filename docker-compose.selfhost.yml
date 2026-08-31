@@ -237,6 +237,9 @@ services:
       ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
       ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
       CLAUDE_CODE_SUBAGENT_MODEL: ${CLAUDE_CODE_SUBAGENT_MODEL:-}
+      # DeepSeek Harness runtime: model id from the dsh catalog
+      # (e.g. deepseek-official/deepseek-chat)
+      MULTICA_DSH_MODEL: ${MULTICA_DSH_MODEL:-}
     volumes:
       - executor_config:/root/.multica
       - executor_workspaces:/workspaces
