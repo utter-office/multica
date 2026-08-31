@@ -39,7 +39,8 @@ ENV TZ=Asia/Shanghai \
 # 持久化：daemon 配置/登录态、任务工作目录、Claude Code 会话
 VOLUME ["/workspaces", "/root/.multica", "/root/.claude"]
 
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+# Build context is the repo root (see docker-build.yml); path is context-relative
+COPY deploy/executor/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
