@@ -227,7 +227,16 @@ services:
       MULTICA_DAEMON_AUTO_UPDATE: "false"
       GH_TOKEN: ${GH_TOKEN:?GH_TOKEN must be set — GitHub PAT with repo write scopes}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set for headless Claude Code}
+      # Claude Code model routing. Point ANTHROPIC_BASE_URL at an Anthropic-
+      # compatible gateway (e.g. DeepSeek: https://api.deepseek.com/anthropic)
+      # and map the Claude tiers with ANTHROPIC_DEFAULT_*_MODEL. Leave empty
+      # to use Anthropic's default models.
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      ANTHROPIC_DEFAULT_OPUS_MODEL: ${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
+      ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+      CLAUDE_CODE_SUBAGENT_MODEL: ${CLAUDE_CODE_SUBAGENT_MODEL:-}
     volumes:
       - executor_config:/root/.multica
       - executor_workspaces:/workspaces
