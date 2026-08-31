@@ -210,6 +210,33 @@ services:
       NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
     restart: unless-stopped
 
+  # Agent executor: multica CLI + daemon + Claude Code + GitHub CLI in one
+  # container. Registers as a member (MULTICA_PAT) and executes agent tasks
+  # locally; git operations authenticate via GH_TOKEN. Optional — omit this
+  # service if agents run on user machines instead.
+  executor:
+    image: ${MULTICA_EXECUTOR_IMAGE:-ghcr.io/utter-office/multica-executor}:${MULTICA_IMAGE_TAG:-latest}
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      # compose network direct link — no nginx/TLS/domain needed
+      MULTICA_SERVER_URL: ${MULTICA_SERVER_URL:-http://backend:8080}
+      MULTICA_PAT: ${MULTICA_PAT:?MULTICA_PAT must be set — create a personal token in the web UI}
+      MULTICA_WORKSPACES_ROOT: /workspaces
+      MULTICA_DAEMON_AUTO_UPDATE: "false"
+      GH_TOKEN: ${GH_TOKEN:?GH_TOKEN must be set — GitHub PAT with repo write scopes}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set for headless Claude Code}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+    volumes:
+      - executor_config:/root/.multica
+      - executor_workspaces:/workspaces
+      - executor_claude:/root/.claude
+    restart: unless-stopped
+
 volumes:
   pgdata:
   backend_uploads:
+  executor_config:
+  executor_workspaces:
+  executor_claude:
