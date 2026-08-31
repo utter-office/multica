@@ -10,5 +10,6 @@ multica login --token "$MULTICA_PAT" --server-url "${MULTICA_SERVER_URL:-http://
 # gh 认证：容器内 git push/pull 走 gh credential helper
 echo "$GH_TOKEN" | gh auth login --with-token
 
-# 启动 daemon（前台，容器主进程；SIGTERM 时优雅退出）
-exec multica daemon start
+# 启动 daemon（--foreground：daemon start 默认后台化会让容器主进程退出，
+# 容器场景必须前台运行；tini 负责 SIGTERM 优雅退出）
+exec multica daemon start --foreground
