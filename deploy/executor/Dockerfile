@@ -31,8 +31,8 @@ COPY --from=multica /app/multica /usr/local/bin/multica
 RUN npm install -g @anthropic-ai/claude-code
 
 # DeepSeek Harness（dsh，DeepSeek 原生 agent CLI；developer preview，迭代快）
-# multica runtime profile 需在首次启动时安装（dsh --profile multica --stdio），见 entrypoint
-RUN npm install -g @deepseek-ai/dsh
+# multica runtime profile 由 entrypoint 幂等安装（dsh plugin add，需 pnpm）
+RUN npm install -g @deepseek-ai/dsh pnpm
 
 # GitHub CLI（git 提交/PR 凭据；版本锁定）
 ADD https://github.com/cli/cli/releases/download/v2.74.0/gh_2.74.0_linux_amd64.tar.gz /tmp/

@@ -14,6 +14,14 @@ if ! gh auth status >/dev/null 2>&1; then
   echo "warning: gh auth status failed — 检查 GH_TOKEN 是否有效" >&2
 fi
 
+# DeepSeek Harness multica profile（幂等：probe 通过则已安装，跳过）
+# /root/.dsh 不在持久化卷内，容器重建后需重新安装
+if ! dsh --profile multica --probe >/dev/null 2>&1; then
+  echo "installing dsh multica profile (dsh-profile-multica)..."
+  dsh plugin --profile multica add dsh-profile-multica >/dev/null 2>&1 \
+    || echo "warning: dsh multica profile install failed — dsh runtime unavailable" >&2
+fi
+
 # 启动 daemon（--foreground：daemon start 默认后台化会让容器主进程退出，
 # 容器场景必须前台运行；tini 负责 SIGTERM 优雅退出）
 exec multica daemon start --foreground
