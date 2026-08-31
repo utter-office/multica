@@ -241,6 +241,9 @@ services:
       # (e.g. deepseek-official/deepseek-chat)
       MULTICA_DSH_MODEL: ${MULTICA_DSH_MODEL:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set for the dsh runtime}
+      # Claude Code 以 root 运行时的沙箱声明：容器是隔离执行环境，
+      # 允许 headless 任务所需的 bypassPermissions（否则拒绝启动）
+      IS_SANDBOX: "1"
     volumes:
       - executor_config:/root/.multica
       - executor_workspaces:/workspaces
