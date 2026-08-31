@@ -1,22 +1,31 @@
-# ── Stage 1: 编译 multica CLI（与 server 同源码，保证 daemon/server 版本一致）──
-FROM golang:1.26-alpine AS builder
-WORKDIR /src
-COPY server/go.mod server/go.sum ./server/
-RUN cd server && go mod download
-COPY server/ ./server/
-RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o /multica ./cmd/multica
+# Agent executor image: multica CLI + daemon + Claude Code + GitHub CLI.
+#
+# Design borrowed from sapk/multica-docker-env (MIT):
+#   - multica CLI is COPY'd from the backend image, so daemon and server
+#     always share the same tag → no version drift, no local Go build.
+#   - tini as PID 1 so SIGTERM reaches the daemon on container stop.
+# Fork-specific: GitHub CLI (git auth), Claude Code routed to DeepSeek via
+# ANTHROPIC_BASE_URL at runtime.
 
-# ── Stage 2: 运行时 ──
+# ── multica CLI source: backend image (same tag as the deployed server) ──
+ARG MULTICA_IMAGE=ghcr.io/utter-office/multica-backend
+ARG MULTICA_TAG=utter-main
+FROM ${MULTICA_IMAGE}:${MULTICA_TAG} AS multica
+
 FROM node:22-slim
 
-# 基础工具：git + 证书 + Claude Code 依赖的系统工具（rg/jq）
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# git + certs + Claude Code deps (rg/jq) + SSH repos + large files + tini
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates curl jq ripgrep \
+      openssh-client git-lfs \
+      tini \
     && apt-get purge -y curl \
     && rm -rf /var/lib/apt/lists/*
 
-# multica CLI（Stage 1 编译产物）
-COPY --from=builder /multica /usr/local/bin/multica
+# multica CLI（与 server 同一镜像 tag，版本天然一致）
+COPY --from=multica /app/multica /usr/local/bin/multica
 
 # Claude Code（agent 执行器；如需锁定版本改为 @anthropic-ai/claude-code@<version>）
 RUN npm install -g @anthropic-ai/claude-code
@@ -39,8 +48,8 @@ ENV TZ=Asia/Shanghai \
 # 持久化：daemon 配置/登录态、任务工作目录、Claude Code 会话
 VOLUME ["/workspaces", "/root/.multica", "/root/.claude"]
 
-# Build context is the repo root (see docker-build.yml); path is context-relative
 COPY deploy/executor/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# tini 保证容器停止时 daemon 收到 SIGTERM 优雅退出
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]

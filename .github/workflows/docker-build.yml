@@ -164,10 +164,10 @@ jobs:
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ github.ref_name }}
 
-  # ─── push: 构建 & 推送 executor 镜像（agent 执行容器，多阶段编译 multica CLI） ───
+  # ─── push: 构建 & 推送 executor 镜像（agent 执行容器；multica CLI 取自 backend 镜像） ───
   build-and-push-executor:
     if: github.event_name == 'push'
-    needs: test
+    needs: [test, build-and-push-backend]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -227,3 +227,5 @@ jobs:
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
+            MULTICA_IMAGE=${{ env.ALIYUN_IMAGE_BACKEND }}
+            MULTICA_TAG=${{ github.ref_name }}
