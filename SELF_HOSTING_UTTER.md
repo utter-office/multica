@@ -255,6 +255,21 @@ ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
 CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
 ```
 
+### 镜像分层（base + runtime variant）
+
+executor 镜像按三层拆分（`deploy/executor/`），base 只构建一次，runtime 薄层叠加：
+
+| 镜像 | 内容 | 用途 |
+|---|---|---|
+| `multica-executor-base` | multica CLI + git/gh/ssh/git-lfs + bubblewrap + tini + entrypoint | 其他镜像的 FROM；调试/定制基础 |
+| `multica-executor-claude` | base + Claude Code | 只跑 claude runtime 的场景 |
+| `multica-executor-dsh` | base + dsh + pnpm | 只跑 dsh runtime 的场景 |
+| `multica-executor`（全量，compose 默认） | base + claude + dsh | 双 runtime 一键部署 |
+
+CI 构建链：`backend → executor-base → claude / dsh / 全量`（variant 并行）。分层收益：缓存复用（base 不动时 variant 秒级重建）、按需拉取（单 runtime 镜像更小）、新 runtime 只需加 variant。
+
+单 runtime 场景切换：`MULTICA_EXECUTOR_IMAGE=registry.cn-hangzhou.aliyuncs.com/nothing/multica-executor-claude`（或 `-dsh`），并移除 compose 中不需要的卷（`executor_claude` / `executor_dsh` 按需保留）。
+
 ### 双 runtime（claude + dsh）
 
 executor 容器内注册两个 agent runtime，web 建 agent 时可选任一：
