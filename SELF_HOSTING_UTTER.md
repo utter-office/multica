@@ -241,6 +241,8 @@ executor:
 | `ANTHROPIC_API_KEY` | ✅ | LLM provider key（DeepSeek 场景为 DeepSeek key） |
 | `ANTHROPIC_BASE_URL` | 可选 | 默认空（Anthropic 原生）；DeepSeek：`https://api.deepseek.com/anthropic` |
 | `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` | 可选 | 模型映射；SIT 全 flash：`deepseek-v4-flash` |
+| `DEEPSEEK_API_KEY` | ✅ | dsh（DeepSeek Harness）原生 API key；同时被 Claude Code 兼容层使用（同一 DeepSeek 账号） |
+| `IS_SANDBOX` | 固定 `"1"` | 容器以 root 运行，Claude Code 拒绝 root 下 bypassPermissions——声明沙箱环境放行 |
 
 ### DeepSeek 路由（全 flash 示例）
 
@@ -252,6 +254,35 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-flash
 ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
 CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
 ```
+
+### 双 runtime（claude + dsh）
+
+executor 容器内注册两个 agent runtime，web 建 agent 时可选任一：
+
+| runtime | CLI | LLM 路径 | 模型 |
+|---|---|---|---|
+| Claude Code | `claude`（npm 包，`IS_SANDBOX=1` 放行 root bypassPermissions） | DeepSeek Anthropic 兼容层（`ANTHROPIC_BASE_URL`） | `deepseek-v4-flash`（全 flash 映射） |
+| DeepSeek Harness | `dsh`（npm 包 `@deepseek-ai/dsh` + `dsh-profile-multica` profile） | DeepSeek 原生 API（`DEEPSEEK_API_KEY`） | `deepseek-official/deepseek-v4-flash`（catalog 默认） |
+
+dsh 由 entrypoint 幂等安装：`dsh plugin --profile multica add dsh-profile-multica`（需 pnpm，镜像已装；`/root/.dsh` 不在持久化卷，容器重建自动重装）。
+
+### Agent 任务环境变量（custom_env）
+
+multica 的任务环境是**封闭白名单**——compose 容器环境变量不会自动进入任务子进程。agent 级配置通过 `PUT /api/agents/{id}/env`（或 web 建 agent 时填写）：
+
+```bash
+curl -X PUT https://<域名>/api/agents/<agent-id>/env \
+  -H "Authorization: Bearer <mul_ PAT>" -H "X-Workspace-ID: <ws-id>" \
+  -H "Content-Type: application/json" \
+  -d '{"custom_env": {"DEEPSEEK_API_KEY": "sk-...", "DSH_PERMISSION_MODE": "danger-full-access"}}'
+```
+
+SIT 实测需要的 agent env：
+
+| 变量 | 用途 |
+|---|---|
+| `DEEPSEEK_API_KEY` | dsh 调用 DeepSeek API（缺则任务报 `MISSING_CREDENTIAL`） |
+| `DSH_PERMISSION_MODE=danger-full-access` | dsh 的 multica profile 默认 `workspace-write` 沙箱，主机无 bwrap/Landlock 后端时拒绝执行任何命令——切 `danger-full-access`（executor 容器本身即隔离层） |
 
 ### 部署与验证
 
@@ -274,6 +305,10 @@ docker compose -f docker-compose.selfhost.yml logs backend | grep "daemon heartb
 - **`.dockerignore` 会排除 `/deploy/`**——镜像构建需要 `!/deploy/executor/` 放行（已配置）
 - 镜像默认源建议 ACR（国内服务器拉取）；compose 默认是 GHCR，服务器 `.env` 需设 `MULTICA_EXECUTOR_IMAGE=registry.cn-hangzhou.aliyuncs.com/nothing/multica-executor`
 - 社区基础镜像（`ghcr.io/sapk/multica-agent-claude`）工具链更全（Podman/Playwright），但 multica CLI 版本不匹配且无 gh——如切换需覆盖 multica CLI 并加 gh 定制层
+- **Claude Code 拒绝 root 下 bypassPermissions**（安全硬限制）——`IS_SANDBOX=1` 声明容器沙箱环境（executor 是隔离容器，合理）
+- **任务沙箱后端**：multica CLI/dsh 默认要求 `workspace-write` 沙箱（bubblewrap/Landlock）。Alibaba Cloud Linux 容器内 bwrap 不可用（namespace 被主机层限制，seccomp/label 放开也无效）且内核 LSM 无 landlock → 必须给 agent 配 `DSH_PERMISSION_MODE=danger-full-access`（dsh）或等价的 consumer 配置
+- **dsh 的 multica profile 是 npm 包 `dsh-profile-multica`**，plugin 管理需要 pnpm（镜像已装）；profile 装在 `$DSH_HOME`（/root/.dsh，非持久化卷，entrypoint 幂等重装）
+- **验证基线（SIT 实测）**：claude（全栈开发工程师）与 dsh（Mika）均可在 executor 内完成「领取任务 → multica CLI → DeepSeek 调用 → 回复回传」全闭环
 
 ## 风险与合规
 
