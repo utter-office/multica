@@ -1,0 +1,17 @@
+# Executor variant: base + Claude Code.
+# Claude Code routes to DeepSeek via ANTHROPIC_BASE_URL at runtime.
+#
+#   docker build -f Dockerfile.claude \
+#     --build-arg BASE_IMAGE=... --build-arg BASE_TAG=utter-main -t multica-executor-claude .
+
+ARG BASE_IMAGE=ghcr.io/utter-office/multica-executor-base
+ARG BASE_TAG=utter-main
+FROM ${BASE_IMAGE}:${BASE_TAG}
+
+# Claude Code（agent 执行器；如需锁定版本改为 @anthropic-ai/claude-code@<version>）
+RUN npm install -g @anthropic-ai/claude-code
+
+# Claude 会话卷（runtime 专属）
+VOLUME ["/root/.claude"]
+
+# ENTRYPOINT 继承 base（tini → entrypoint.sh）

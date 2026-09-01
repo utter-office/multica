@@ -14,9 +14,10 @@ if ! gh auth status >/dev/null 2>&1; then
   echo "warning: gh auth status failed — 检查 GH_TOKEN 是否有效" >&2
 fi
 
-# DeepSeek Harness multica profile（幂等：probe 通过则已安装，跳过）
-# /root/.dsh 不在持久化卷内，容器重建后需重新安装
-if ! dsh --profile multica --probe >/dev/null 2>&1; then
+# DeepSeek Harness multica profile（幂等：dsh 存在且 probe 通过则跳过）。
+# base 镜像可能不含 dsh（claude-only variant），用 command -v 先行判断。
+# /root/.dsh 不在持久化卷内，容器重建后需重新安装。
+if command -v dsh >/dev/null 2>&1 && ! dsh --profile multica --probe >/dev/null 2>&1; then
   echo "installing dsh multica profile (dsh-profile-multica)..."
   dsh plugin --profile multica add dsh-profile-multica >/dev/null 2>&1 \
     || echo "warning: dsh multica profile install failed — dsh runtime unavailable" >&2

@@ -1,0 +1,19 @@
+# Executor variant: base + DeepSeek Harness (dsh).
+# multica runtime profile is installed idempotently by entrypoint
+# (dsh plugin add dsh-profile-multica, needs pnpm).
+#
+#   docker build -f Dockerfile.dsh \
+#     --build-arg BASE_IMAGE=... --build-arg BASE_TAG=utter-main -t multica-executor-dsh .
+
+ARG BASE_IMAGE=ghcr.io/utter-office/multica-executor-base
+ARG BASE_TAG=utter-main
+FROM ${BASE_IMAGE}:${BASE_TAG}
+
+# DeepSeek Harness（dsh，DeepSeek 原生 agent CLI；developer preview，迭代快）
+# pnpm：dsh 的 plugin 管理依赖
+RUN npm install -g @deepseek-ai/dsh pnpm
+
+# dsh profile/会话卷（runtime 专属；/root/.dsh 含 multica profile，非持久化则 entrypoint 重装）
+VOLUME ["/root/.dsh"]
+
+# ENTRYPOINT 继承 base（tini → entrypoint.sh）

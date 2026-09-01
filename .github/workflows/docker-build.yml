@@ -15,6 +15,9 @@ env:
   ALIYUN_IMAGE_BACKEND: registry.cn-hangzhou.aliyuncs.com/nothing/multica-backend
   ALIYUN_IMAGE_WEB: registry.cn-hangzhou.aliyuncs.com/nothing/multica-web
   ALIYUN_IMAGE_EXECUTOR: registry.cn-hangzhou.aliyuncs.com/nothing/multica-executor
+  ALIYUN_IMAGE_EXECUTOR_BASE: registry.cn-hangzhou.aliyuncs.com/nothing/multica-executor-base
+  ALIYUN_IMAGE_EXECUTOR_CLAUDE: registry.cn-hangzhou.aliyuncs.com/nothing/multica-executor-claude
+  ALIYUN_IMAGE_EXECUTOR_DSH: registry.cn-hangzhou.aliyuncs.com/nothing/multica-executor-dsh
   GO_VERSION: '1.26'
 
 jobs:
@@ -164,10 +167,210 @@ jobs:
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ github.ref_name }}
 
-  # ─── push: 构建 & 推送 executor 镜像（agent 执行容器；multica CLI 取自 backend 镜像） ───
-  build-and-push-executor:
+  # ─── push: 构建 & 推送 executor 镜像（三层拆分） ───
+  # 构建链：executor-base（needs backend）→ executor-claude / executor-dsh / executor（全量）
+  # base 层只构建一次，runtime 变体薄层叠加，缓存与下载带宽最大化复用
+  build-and-push-executor-base:
     if: github.event_name == 'push'
     needs: [test, build-and-push-backend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Alibaba Cloud Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}/multica-executor-base
+            ${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Multica Executor Base
+            org.opencontainers.image.description=Multica agent executor base layer (utter-office fork)
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/executor/Dockerfile.base
+          pull: true
+          platforms: linux/amd64
+          push: true
+          # ACR 兼容，同上
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            MULTICA_IMAGE=${{ env.ALIYUN_IMAGE_BACKEND }}
+            MULTICA_TAG=${{ github.ref_name }}
+
+  # ─── push: executor-claude（base + Claude Code） ───
+  build-and-push-executor-claude:
+    if: github.event_name == 'push'
+    needs: [test, build-and-push-executor-base]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Alibaba Cloud Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}/multica-executor-claude
+            ${{ env.ALIYUN_IMAGE_EXECUTOR_CLAUDE }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Multica Executor Claude
+            org.opencontainers.image.description=Multica agent executor with Claude Code (utter-office fork)
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/executor/Dockerfile.claude
+          pull: true
+          platforms: linux/amd64
+          push: true
+          # ACR 兼容，同上
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
+            BASE_TAG=${{ github.ref_name }}
+
+  # ─── push: executor-dsh（base + DeepSeek Harness） ───
+  build-and-push-executor-dsh:
+    if: github.event_name == 'push'
+    needs: [test, build-and-push-executor-base]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Alibaba Cloud Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}/multica-executor-dsh
+            ${{ env.ALIYUN_IMAGE_EXECUTOR_DSH }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Multica Executor DSH
+            org.opencontainers.image.description=Multica agent executor with DeepSeek Harness (utter-office fork)
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/executor/Dockerfile.dsh
+          pull: true
+          platforms: linux/amd64
+          push: true
+          # ACR 兼容，同上
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
+            BASE_TAG=${{ github.ref_name }}
+
+  # ─── push: executor 全量（base + Claude Code + dsh，compose 默认） ───
+  build-and-push-executor:
+    if: github.event_name == 'push'
+    needs: [test, build-and-push-executor-base]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -207,7 +410,7 @@ jobs:
             type=sha,prefix=sha-
           labels: |
             org.opencontainers.image.title=Multica Executor
-            org.opencontainers.image.description=Multica agent executor container (utter-office fork)
+            org.opencontainers.image.description=Multica agent executor container, full runtime (utter-office fork)
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -227,5 +430,5 @@ jobs:
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
-            MULTICA_IMAGE=${{ env.ALIYUN_IMAGE_BACKEND }}
-            MULTICA_TAG=${{ github.ref_name }}
+            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
+            BASE_TAG=${{ github.ref_name }}
