@@ -9,6 +9,15 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Consecutive pushes on the same ref supersede the previous run: parallel
+# runs on one branch each wrote multi-GB executor caches, blowing the repo's
+# gha cache budget and forcing cold apt/npm rebuilds that turned ~10 min
+# runs into 25+ min ones. Tags and branches are different refs, so a release
+# tag build is never cancelled by a branch push.
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   ALIYUN_REGISTRY: registry.cn-hangzhou.aliyuncs.com
   # 与 utter-office 共用 ACR 命名空间（同一账号资源）
