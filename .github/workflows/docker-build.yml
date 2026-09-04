@@ -50,6 +50,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version stamp needs git describe over full history + tags; a
+          # shallow clone knows only the tip commit and finds no ancestor tag.
+          fetch-depth: 0
+
+      # Branch builds must not bake ref_name (e.g. "utter-main") as the CLI
+      # version: the server's quick-create gate parses daemon cli_version and
+      # fails closed (ErrCLIVersionMissing) on unparsable strings. Match
+      # make build / make daemon — stamp git describe so branch images report
+      # the vX.Y.Z-N-g<sha> dev-build shape (exempt from the gate) while
+      # pinning the exact commit; tagged builds describe to the tag itself,
+      # so their stamp is unchanged.
+      - name: Compute version stamp
+        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -101,7 +115,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
 
   # ─── push: 构建 & 推送 web 镜像 ───
@@ -116,6 +130,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version stamp needs git describe over full history + tags; a
+          # shallow clone knows only the tip commit and finds no ancestor tag.
+          fetch-depth: 0
+
+      # Same stamp as the backend/executor jobs (see build-and-push-backend):
+      # branch builds report a git-describe string instead of the raw ref name.
+      - name: Compute version stamp
+        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -165,7 +188,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            NEXT_PUBLIC_APP_VERSION=${{ github.ref_name }}
+            NEXT_PUBLIC_APP_VERSION=${{ env.VERSION }}
 
   # ─── push: 构建 & 推送 executor 镜像（三层拆分） ───
   # 构建链：executor-base（needs backend）→ executor-claude / executor-dsh / executor（全量）
@@ -181,6 +204,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version stamp needs git describe over full history + tags; a
+          # shallow clone knows only the tip commit and finds no ancestor tag.
+          fetch-depth: 0
+
+      # Same stamp as the backend job (see build-and-push-backend): the
+      # multica CLI inside the executor images is COPY'd from the backend
+      # image, so its cli_version must stay a parseable/exempt string or the
+      # server's quick-create gate rejects every agent on this executor.
+      - name: Compute version stamp
+        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -230,7 +264,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
             MULTICA_IMAGE=${{ env.ALIYUN_IMAGE_BACKEND }}
             MULTICA_TAG=${{ github.ref_name }}
@@ -247,6 +281,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version stamp needs git describe over full history + tags; a
+          # shallow clone knows only the tip commit and finds no ancestor tag.
+          fetch-depth: 0
+
+      # Same stamp as the backend job (see build-and-push-backend).
+      - name: Compute version stamp
+        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -296,7 +338,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
             BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
             BASE_TAG=${{ github.ref_name }}
@@ -313,6 +355,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version stamp needs git describe over full history + tags; a
+          # shallow clone knows only the tip commit and finds no ancestor tag.
+          fetch-depth: 0
+
+      # Same stamp as the backend job (see build-and-push-backend).
+      - name: Compute version stamp
+        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -362,7 +412,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
             BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
             BASE_TAG=${{ github.ref_name }}
@@ -379,6 +429,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version stamp needs git describe over full history + tags; a
+          # shallow clone knows only the tip commit and finds no ancestor tag.
+          fetch-depth: 0
+
+      # Same stamp as the backend job (see build-and-push-backend).
+      - name: Compute version stamp
+        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -428,7 +486,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
             BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
             BASE_TAG=${{ github.ref_name }}
