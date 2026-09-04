@@ -51,9 +51,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags; a
-          # shallow clone knows only the tip commit and finds no ancestor tag.
+          # The version stamp needs git describe over full history + tags.
+          # actions/checkout fetches with --no-tags by default — fetch-tags is
+          # required or describe falls back to a bare sha that the server's
+          # version gate cannot parse.
           fetch-depth: 0
+          fetch-tags: true
 
       # Branch builds must not bake ref_name (e.g. "utter-main") as the CLI
       # version: the server's quick-create gate parses daemon cli_version and
@@ -131,9 +134,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags; a
-          # shallow clone knows only the tip commit and finds no ancestor tag.
+          # The version stamp needs git describe over full history + tags.
+          # actions/checkout fetches with --no-tags by default — fetch-tags is
+          # required or describe falls back to a bare sha that the server's
+          # version gate cannot parse.
           fetch-depth: 0
+          fetch-tags: true
 
       # Same stamp as the backend/executor jobs (see build-and-push-backend):
       # branch builds report a git-describe string instead of the raw ref name.
@@ -205,9 +211,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags; a
-          # shallow clone knows only the tip commit and finds no ancestor tag.
+          # The version stamp needs git describe over full history + tags.
+          # actions/checkout fetches with --no-tags by default — fetch-tags is
+          # required or describe falls back to a bare sha that the server's
+          # version gate cannot parse.
           fetch-depth: 0
+          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend): the
       # multica CLI inside the executor images is COPY'd from the backend
@@ -282,9 +291,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags; a
-          # shallow clone knows only the tip commit and finds no ancestor tag.
+          # The version stamp needs git describe over full history + tags.
+          # actions/checkout fetches with --no-tags by default — fetch-tags is
+          # required or describe falls back to a bare sha that the server's
+          # version gate cannot parse.
           fetch-depth: 0
+          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend).
       - name: Compute version stamp
@@ -356,9 +368,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags; a
-          # shallow clone knows only the tip commit and finds no ancestor tag.
+          # The version stamp needs git describe over full history + tags.
+          # actions/checkout fetches with --no-tags by default — fetch-tags is
+          # required or describe falls back to a bare sha that the server's
+          # version gate cannot parse.
           fetch-depth: 0
+          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend).
       - name: Compute version stamp
@@ -430,9 +445,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags; a
-          # shallow clone knows only the tip commit and finds no ancestor tag.
+          # The version stamp needs git describe over full history + tags.
+          # actions/checkout fetches with --no-tags by default — fetch-tags is
+          # required or describe falls back to a bare sha that the server's
+          # version gate cannot parse.
           fetch-depth: 0
+          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend).
       - name: Compute version stamp
