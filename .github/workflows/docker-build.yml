@@ -51,12 +51,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags.
-          # actions/checkout fetches with --no-tags by default — fetch-tags is
-          # required or describe falls back to a bare sha that the server's
-          # version gate cannot parse.
+          # The version stamp needs git describe over full history + tags;
+          # tags are fetched explicitly in the Compute version stamp step
+          # (checkout's fetch-tags input only applies to shallow clones).
           fetch-depth: 0
-          fetch-tags: true
 
       # Branch builds must not bake ref_name (e.g. "utter-main") as the CLI
       # version: the server's quick-create gate parses daemon cli_version and
@@ -66,7 +64,14 @@ jobs:
       # pinning the exact commit; tagged builds describe to the tag itself,
       # so their stamp is unchanged.
       - name: Compute version stamp
-        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
+        run: |
+          # Tags must be present for describe to resolve (checkout's
+          # fetch-tags only applies to shallow clones); without them describe
+          # falls back to a bare sha that the server's version gate rejects.
+          git fetch --tags --force origin
+          VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version stamp: $VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -134,17 +139,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags.
-          # actions/checkout fetches with --no-tags by default — fetch-tags is
-          # required or describe falls back to a bare sha that the server's
-          # version gate cannot parse.
+          # The version stamp needs git describe over full history + tags;
+          # tags are fetched explicitly in the Compute version stamp step
+          # (checkout's fetch-tags input only applies to shallow clones).
           fetch-depth: 0
-          fetch-tags: true
 
       # Same stamp as the backend/executor jobs (see build-and-push-backend):
       # branch builds report a git-describe string instead of the raw ref name.
       - name: Compute version stamp
-        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
+        run: |
+          # Tags must be present for describe to resolve (checkout's
+          # fetch-tags only applies to shallow clones); without them describe
+          # falls back to a bare sha that the server's version gate rejects.
+          git fetch --tags --force origin
+          VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version stamp: $VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -211,19 +221,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags.
-          # actions/checkout fetches with --no-tags by default — fetch-tags is
-          # required or describe falls back to a bare sha that the server's
-          # version gate cannot parse.
+          # The version stamp needs git describe over full history + tags;
+          # tags are fetched explicitly in the Compute version stamp step
+          # (checkout's fetch-tags input only applies to shallow clones).
           fetch-depth: 0
-          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend): the
       # multica CLI inside the executor images is COPY'd from the backend
       # image, so its cli_version must stay a parseable/exempt string or the
       # server's quick-create gate rejects every agent on this executor.
       - name: Compute version stamp
-        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
+        run: |
+          # Tags must be present for describe to resolve (checkout's
+          # fetch-tags only applies to shallow clones); without them describe
+          # falls back to a bare sha that the server's version gate rejects.
+          git fetch --tags --force origin
+          VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version stamp: $VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -291,16 +306,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags.
-          # actions/checkout fetches with --no-tags by default — fetch-tags is
-          # required or describe falls back to a bare sha that the server's
-          # version gate cannot parse.
+          # The version stamp needs git describe over full history + tags;
+          # tags are fetched explicitly in the Compute version stamp step
+          # (checkout's fetch-tags input only applies to shallow clones).
           fetch-depth: 0
-          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend).
       - name: Compute version stamp
-        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
+        run: |
+          # Tags must be present for describe to resolve (checkout's
+          # fetch-tags only applies to shallow clones); without them describe
+          # falls back to a bare sha that the server's version gate rejects.
+          git fetch --tags --force origin
+          VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version stamp: $VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -368,16 +388,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags.
-          # actions/checkout fetches with --no-tags by default — fetch-tags is
-          # required or describe falls back to a bare sha that the server's
-          # version gate cannot parse.
+          # The version stamp needs git describe over full history + tags;
+          # tags are fetched explicitly in the Compute version stamp step
+          # (checkout's fetch-tags input only applies to shallow clones).
           fetch-depth: 0
-          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend).
       - name: Compute version stamp
-        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
+        run: |
+          # Tags must be present for describe to resolve (checkout's
+          # fetch-tags only applies to shallow clones); without them describe
+          # falls back to a bare sha that the server's version gate rejects.
+          git fetch --tags --force origin
+          VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version stamp: $VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -445,16 +470,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The version stamp needs git describe over full history + tags.
-          # actions/checkout fetches with --no-tags by default — fetch-tags is
-          # required or describe falls back to a bare sha that the server's
-          # version gate cannot parse.
+          # The version stamp needs git describe over full history + tags;
+          # tags are fetched explicitly in the Compute version stamp step
+          # (checkout's fetch-tags input only applies to shallow clones).
           fetch-depth: 0
-          fetch-tags: true
 
       # Same stamp as the backend job (see build-and-push-backend).
       - name: Compute version stamp
-        run: echo "VERSION=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_ENV"
+        run: |
+          # Tags must be present for describe to resolve (checkout's
+          # fetch-tags only applies to shallow clones); without them describe
+          # falls back to a bare sha that the server's version gate rejects.
+          git fetch --tags --force origin
+          VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version stamp: $VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
