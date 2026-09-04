@@ -96,15 +96,22 @@ remote() {
     esac
 
     # service -> image map, restricted to $SERVICES (excludes the pinned
-    # postgres image). --services and --images follow the same compose order.
+    # postgres image). --services and --images do NOT share an output order,
+    # so each image is extracted by name from the compose model instead.
+    service_image() { # $1 = service name
+        docker compose -f "$COMPOSE_FILE" config | awk -v svc="$1:" '
+            $0 ~ "^  " svc { in_svc = 1; next }
+            in_svc && /^  [a-zA-Z]/ { in_svc = 0 }
+            in_svc && /^    image:/ { sub(/^    image: /, ""); print; exit }
+        '
+    }
     declare -a svc_names=() svc_images=()
-    while read -r name img; do
-        case " $SERVICES " in
-            *" $name "*) svc_names+=("$name"); svc_images+=("$img") ;;
-        esac
-    done < <(paste \
-        <(docker compose -f "$COMPOSE_FILE" config --services) \
-        <(docker compose -f "$COMPOSE_FILE" config --images))
+    for s in $SERVICES; do
+        img="$(service_image "$s")"
+        [ -n "$img" ] || { echo "error: no image resolved for service $s in the compose model" >&2; exit 1; }
+        svc_names+=("$s")
+        svc_images+=("$img")
+    done
 
     echo "== desired tag (${ENV_FILE}): $desired =="
     for i in "${!svc_names[@]}"; do
@@ -188,7 +195,7 @@ remote
 if [ "$MODE" = "check" ]; then
     # Local hint: newest fork release tag vs desired tag (network may be down;
     # then this is skipped rather than failing the check).
-    latest="$(git ls-remote --tags origin 'v[0-9]*' 2>/dev/null | sed 's|.*refs/tags/||' | sort -V | tail -1 || true)"
+    latest="$(git ls-remote --tags origin 'v[0-9]*' 2>/dev/null | grep -v '\^{}' | sed 's|.*refs/tags/||' | sort -V | tail -1 || true)"
     if [ -n "$latest" ]; then
         echo ""
         echo "== hint =="
