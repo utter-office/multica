@@ -155,34 +155,52 @@ remote() {
     done
     [ -n "$ready" ] || { echo "error: backend /readyz never returned 200" >&2; exit 1; }
 
-    # Frontend serves its app shell.
-    fport="$(docker compose -f "$COMPOSE_FILE" port frontend 3000 2>/dev/null | sed 's/.*://' | tr -d ' ')"
-    fcode="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${fport}/" 2>/dev/null || true)"
+    # Frontend serves its app shell. It binds a moment after start, so probe
+    # with retries — a single cold read races startup and reports a false 000.
+    echo "   frontend http -> checking with retries"
+    fcode="000"
+    for i in $(seq 1 10); do
+        fport="$(docker compose -f "$COMPOSE_FILE" port frontend 3000 2>/dev/null | sed 's/.*://' | tr -d ' ' || true)"
+        if [ -n "$fport" ]; then
+            fcode="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${fport}/" 2>/dev/null || true)"
+            [ "$fcode" = "200" ] && break
+        fi
+        sleep 2
+    done
     echo "   frontend http -> $fcode"
 
     # Executor: daemon up + CLI stamp sane. The stamp is what the server's
     # quick-create gate parses (cli_version at registration): it must be a
-    # semver (v0.4.40) or the dev git-describe shape (v0.4.40-1-g<sha>) — a
-    # bare sha or branch name would be rejected with 422.
-    sleep 3
+    # semver (v0.4.41) or the dev git-describe shape (v0.4.41-1-g<sha>) — a
+    # bare sha or branch name would be rejected with 422. The container only
+    # accepts exec once its entrypoint is up, so probe with retries instead of
+    # letting a transient exec failure kill the script under set -e.
     exec_up=""
     for i in $(seq 1 30); do
-        if docker compose -f "$COMPOSE_FILE" ps --status running executor | grep -q "executor"; then exec_up=1; break; fi
+        if docker compose -f "$COMPOSE_FILE" ps --status running executor 2>/dev/null | grep -q "executor"; then exec_up=1; break; fi
         sleep 2
     done
     [ -n "$exec_up" ] || { echo "error: executor container not running" >&2; exit 1; }
 
-    stamp="$(docker compose -f "$COMPOSE_FILE" exec -T executor multica --version 2>/dev/null | head -1 || true)"
+    stamp=""
+    for i in $(seq 1 15); do
+        stamp="$(docker compose -f "$COMPOSE_FILE" exec -T executor multica --version 2>/dev/null | head -1 || true)"
+        [ -n "$stamp" ] && break
+        sleep 2
+    done
     echo "   executor CLI: $stamp"
     case "$stamp" in
         *"v"[0-9]*.[0-9]*.[0-9]*) echo "   executor stamp: ok (parsable by the version gate)" ;;
         *) echo "   executor stamp: WARNING — not a semver/git-describe string; quick-create will be rejected (422)" ;;
     esac
 
-    sleep 5
     echo ""
     echo "== daemon status =="
-    docker compose -f "$COMPOSE_FILE" exec -T executor multica daemon status 2>/dev/null | head -6 || true
+    for i in $(seq 1 10); do
+        dstatus="$(docker compose -f "$COMPOSE_FILE" exec -T executor multica daemon status 2>/dev/null | head -6 || true)"
+        [ -n "$dstatus" ] && { echo "$dstatus"; break; }
+        sleep 2
+    done
 
     echo ""
     echo "== summary =="
