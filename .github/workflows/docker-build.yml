@@ -100,7 +100,10 @@ jobs:
           # sha 前缀 tag 用于部署回滚；部署时固定 MULTICA_IMAGE_TAG，不要用 latest
           tags: |
             type=ref,event=branch
+            # v-prefixed twin: executor images FROM this image by github.ref_name
+            # (e.g. v0.4.40), which keeps the leading v
             type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
             type=sha,prefix=sha-
           labels: |
             org.opencontainers.image.title=Multica Backend
@@ -266,7 +269,10 @@ jobs:
             ${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
           tags: |
             type=ref,event=branch
+            # v-prefixed twin: runtime variants FROM this image by github.ref_name
+            # (e.g. v0.4.40), which keeps the leading v
             type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
             type=sha,prefix=sha-
           labels: |
             org.opencontainers.image.title=Multica Executor Base
