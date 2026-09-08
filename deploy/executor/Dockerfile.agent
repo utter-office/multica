@@ -30,7 +30,8 @@ FROM node:22-slim AS base
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # git + certs + SSH repos + 大文件 + bubblewrap(Claude workspace 沙箱) + tini
-# + gcc/libc6-dev/make（cgo / `go test -race` 链接器）+ python3（node-gyp 兜底）。
+# + gcc/libc6-dev/make（cgo / `go test -race` 链接器）+ procps(free，playwright 诊断用)
+# + python3（node-gyp 兜底）。
 # 注意：不再 purge curl —— claude native installer 与下方 Go/Playwright 下载都要用。
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates curl jq ripgrep \
@@ -38,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       bubblewrap \
       tini \
       gcc libc6-dev make \
+      procps \
       python3 \
     && rm -rf /var/lib/apt/lists/*
 
