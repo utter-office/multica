@@ -2,6 +2,7 @@
 name: multica-execution-economy
 description: "Use when executing a task that will take many tool round-trips and grow a large context: multi-file or multi-repo changes, deep investigation, acceptance or verification runs, or large-diff reviews — also when a tool or environment failure is blocking the task. Not for one-shot tasks."
 user-invocable: false
+allowed-tools: Bash(multica *)
 ---
 
 # Economize long-task execution
