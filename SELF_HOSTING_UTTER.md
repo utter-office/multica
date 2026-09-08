@@ -200,7 +200,7 @@ executor 容器 ──http://backend:8080──▶ backend（wss 注册/领任�
   └─ gh CLI（GH_TOKEN 凭据，git 提交身份 utter.office）
 ```
 
-- multica CLI 从 **backend 镜像 COPY**（`deploy/executor/Dockerfile` 多阶段）——daemon 与 server 版本天然一致
+- multica CLI 从 **backend 镜像 COPY**（`deploy/executor/Dockerfile.agent` 单文件多 target：base/claude/dsh/full）——daemon 与 server 版本天然一致
 - 镜像由 CI 构建双推 ACR（`docker-build.yml` 的 `build-and-push-executor` job，依赖 backend job 完成后构建）
 - 卷：`executor_config`（登录态/配置）、`executor_workspaces`（任务工作目录）、`executor_claude`（Claude 会话）
 

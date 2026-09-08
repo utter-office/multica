@@ -218,9 +218,10 @@ jobs:
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ env.VERSION }}
 
-  # ─── push: 构建 & 推送 executor 镜像（三层拆分） ───
+  # ─── push: 构建 & 推送 executor 镜像（单文件多 target：deploy/executor/Dockerfile.agent） ───
   # 构建链：executor-base（needs backend）→ executor-claude / executor-dsh / executor（全量）
-  # base 层只构建一次，runtime 变体薄层叠加，缓存与下载带宽最大化复用
+  # base 层只构建一次，runtime 变体薄层叠加；变体 FROM 已推送的 base
+  # （BASE_IMAGE=<executor-base image>:<ref_name>，一个参数，替代旧 BASE_IMAGE+BASE_TAG）
   build-and-push-executor-base:
     if: github.event_name == 'push'
     needs: [test, build-and-push-backend]
@@ -291,7 +292,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: deploy/executor/Dockerfile.base
+          file: deploy/executor/Dockerfile.agent
+          target: base
           pull: true
           platforms: linux/amd64
           push: true
@@ -373,7 +375,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: deploy/executor/Dockerfile.claude
+          file: deploy/executor/Dockerfile.agent
+          target: claude
           pull: true
           platforms: linux/amd64
           push: true
@@ -387,8 +390,7 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
-            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
-            BASE_TAG=${{ github.ref_name }}
+            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}:${{ github.ref_name }}
 
   # ─── push: executor-dsh（base + DeepSeek Harness） ───
   build-and-push-executor-dsh:
@@ -455,7 +457,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: deploy/executor/Dockerfile.dsh
+          file: deploy/executor/Dockerfile.agent
+          target: dsh
           pull: true
           platforms: linux/amd64
           push: true
@@ -469,8 +472,7 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
-            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
-            BASE_TAG=${{ github.ref_name }}
+            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}:${{ github.ref_name }}
 
   # ─── push: executor 全量（base + Claude Code + dsh，compose 默认） ───
   build-and-push-executor:
@@ -537,7 +539,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: deploy/executor/Dockerfile
+          file: deploy/executor/Dockerfile.agent
+          target: full
           pull: true
           platforms: linux/amd64
           push: true
@@ -551,5 +554,4 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
             COMMIT=${{ github.sha }}
-            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}
-            BASE_TAG=${{ github.ref_name }}
+            BASE_IMAGE=${{ env.ALIYUN_IMAGE_EXECUTOR_BASE }}:${{ github.ref_name }}

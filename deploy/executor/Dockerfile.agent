@@ -1,0 +1,167 @@
+# Executor image: base + per-runtime targets, single source of truth.
+# Replaces the old four-file split (Dockerfile.base / .claude / .dsh / Dockerfile);
+# the `full` target keeps the compose/SIT default image (multica-executor, no suffix).
+#
+#   # one invocation, in-file stage chain (no published base needed)
+#   docker build -f deploy/executor/Dockerfile.agent --target claude -t multica-executor-claude:local .
+#   # chain on a published base image (thin layer build)
+#   docker build -f deploy/executor/Dockerfile.agent --target claude \
+#     --build-arg BASE_IMAGE=ghcr.io/utter-office/multica-executor-base:utter-main \
+#     -t multica-executor-claude:utter-main .
+#
+# Prefer the Makefile (deploy/executor/Makefile): build-base once, variants chain on it.
+#
+# 结构与参考项目 sapk/multica-docker-env 对齐（单文件多 target），差异见各 stage 注释。
+
+ARG MULTICA_IMAGE=ghcr.io/utter-office/multica-backend
+ARG MULTICA_TAG=utter-main
+# 变体 stage 的 base 来源。默认是本文件内的 `base` stage；
+# 传 registry tag 则链上已发布的 base 镜像（薄层构建）。
+ARG BASE_IMAGE=base
+
+# ── multica CLI source: backend image (same tag as the deployed server) ──
+FROM ${MULTICA_IMAGE}:${MULTICA_TAG} AS multica
+
+# ═══════════════════════════════════════════════════════════════════════════
+# base — multica CLI + git/gh + 工程工具链 + Playwright + entrypoint（无 AI CLI）
+# ═══════════════════════════════════════════════════════════════════════════
+FROM node:22-slim AS base
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# git + certs + SSH repos + 大文件 + bubblewrap(Claude workspace 沙箱) + tini
+# + gcc/libc6-dev/make（cgo / `go test -race` 链接器）+ python3（node-gyp 兜底）。
+# 注意：不再 purge curl —— claude native installer 与下方 Go/Playwright 下载都要用。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates curl jq ripgrep \
+      openssh-client git-lfs \
+      bubblewrap \
+      tini \
+      gcc libc6-dev make \
+      python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# multica CLI（与 server 同一镜像 tag，版本天然一致）
+COPY --from=multica /app/multica /usr/local/bin/multica
+
+# GitHub CLI（git 提交/PR 凭据；版本锁定）
+ADD https://github.com/cli/cli/releases/download/v2.74.0/gh_2.74.0_linux_amd64.tar.gz /tmp/
+RUN tar xzf /tmp/gh_*.tar.gz -C /usr/local --strip-components=1 && rm /tmp/gh_*.tar.gz
+
+# git 身份与凭据集成（提交显示为 utter.office）
+RUN git config --global user.name "utter.office" \
+    && git config --global user.email "utter.office@trustinlab.com" \
+    && git config --global credential.helper "!gh auth git-credential"
+
+# Go 工具链：对齐 go.mod（1.26.x）。镜像 amd64-only（同上方 gh 的约定），锁 sha256；
+# go/gofmt 软链进 /usr/local/bin（单用户 root 容器，无需 per-user .local 布局）。
+# 升版本时同步更新 sha256（来源：https://go.dev/dl/?mode=json）。
+ARG GO_VERSION=1.26.8
+ARG GO_SHA256=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
+    && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
+    && go version
+
+# pnpm 提升到 base：本仓库 pnpm workspace 与 dsh 的 plugin 管理都要用，
+# 所有变体（含 claude）继承，不再只在 dsh/full 里装。
+RUN npm install -g pnpm
+
+# Playwright：对齐仓库 @playwright/test（^1.58.2，lockfile 解析 1.58.2）；
+# e2e 只用 chromium（playwright.config.ts 单项目），firefox/webkit 不装。
+# 系统库不手维护清单 —— 用 playwright 自己的 install-deps，自动匹配本镜像的
+# debian bookworm 包名（参考镜像那串 0t64/libicu76 清单是 trixie 的，照搬装不上）。
+# 版本升级必须与仓库 lockfile 同步（浏览器 revision 与版本耦合）。
+ARG PLAYWRIGHT_VERSION=1.58.2
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+RUN npm install -g "@playwright/test@${PLAYWRIGHT_VERSION}" \
+    && npx playwright install-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+# 浏览器二进制烤进镜像层（每个 executor 拉一次，省掉 agent 任务里最慢的一步）；
+# timeout 包装 + 前后诊断（参考镜像 M-80 卡死后加的同款防护）。
+ARG PLAYWRIGHT_TIMEOUT=600
+RUN echo "=== playwright: pre-flight ===" \
+    && free -m \
+    && df -h /root \
+    && CI=true timeout ${PLAYWRIGHT_TIMEOUT} npx playwright install chromium \
+    || { echo "ERROR: playwright chromium install failed/timed out after ${PLAYWRIGHT_TIMEOUT}s"; \
+         echo "检查上方内存/磁盘诊断"; exit 1; } \
+    && du -sh "${PLAYWRIGHT_BROWSERS_PATH}"
+
+# 环境：时区/编码、任务工作目录、关闭 daemon 自动更新（避免拉到官方新版本破坏版本匹配）
+ENV TZ=Asia/Shanghai \
+    LANG=C.UTF-8 \
+    MULTICA_WORKSPACES_ROOT=/workspaces \
+    MULTICA_DAEMON_AUTO_UPDATE=false
+
+# 持久化：daemon 配置/登录态、任务工作目录（runtime 专属卷由 variant 声明）
+VOLUME ["/workspaces", "/root/.multica"]
+
+COPY deploy/executor/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# tini 保证容器停止时 daemon 收到 SIGTERM 优雅退出
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# claude — base + Claude Code（官方 native installer，非 npm）
+# ═══════════════════════════════════════════════════════════════════════════
+FROM ${BASE_IMAGE} AS claude
+
+# 官方原生安装器：https://claude.ai/install.sh
+# 产物：~/.local/bin/claude（软链 → ~/.local/share/claude/versions/<v>/），自带运行时，无需 Node。
+# 锁定版本用位置参数：--build-arg CLAUDE_CODE_VERSION=2.x.y
+ARG CLAUDE_CODE_VERSION=latest
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION}"
+
+# native 安装的自动更新不读 settings 的 autoUpdates:false（anthropics/claude-code#88030），
+# 只认环境变量。镜像烤死的版本必须禁用自更新，否则运行时会被悄悄改版本；
+# 需要连手动 claude update 也锁死时再加 DISABLE_UPDATES=1。
+ENV DISABLE_AUTOUPDATER=1
+# installer 装在 $HOME/.local/bin；root 下即 /root/.local/bin，补 PATH
+# （daemon 靠 exec.LookPath 找 claude；若未来改非 root 用户，此处随 $HOME 迁移）
+ENV PATH="/root/.local/bin:${PATH}"
+
+# 构建期冒烟：确认安装成功且 PATH 生效（若未来 claude 首跑出现交互行为再移除）
+RUN CI=true claude --version
+
+# Claude 会话卷（runtime 专属）
+VOLUME ["/root/.claude"]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# dsh — base + DeepSeek Harness（DeepSeek 官方发布渠道就是 npm 包，保持 npm）
+# ═══════════════════════════════════════════════════════════════════════════
+FROM ${BASE_IMAGE} AS dsh
+
+# DeepSeek Harness（developer preview，迭代快；如需锁定版本：
+# npm install -g @deepseek-ai/dsh@<version>）。pnpm 已在 base。
+# multica profile 由 entrypoint 幂等安装。
+RUN npm install -g @deepseek-ai/dsh
+
+# dsh profile/会话卷（runtime 专属；/root/.dsh 含 multica profile，非持久化则 entrypoint 重装）
+VOLUME ["/root/.dsh"]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# full — base + Claude Code + dsh（compose/SIT 默认镜像，镜像名无后缀）
+# ═══════════════════════════════════════════════════════════════════════════
+FROM ${BASE_IMAGE} AS full
+
+ARG CLAUDE_CODE_VERSION=latest
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION}"
+
+ENV DISABLE_AUTOUPDATER=1
+ENV PATH="/root/.local/bin:${PATH}"
+
+# dsh（npm 包，同上）；pnpm 已在 base
+RUN npm install -g @deepseek-ai/dsh
+
+RUN CI=true claude --version
+
+# runtime 专属卷
+VOLUME ["/root/.claude", "/root/.dsh"]
+
+# ENTRYPOINT 继承 base（tini → entrypoint.sh）
