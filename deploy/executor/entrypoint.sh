@@ -23,7 +23,8 @@ if command -v claude >/dev/null 2>&1; then
     claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 \
       || echo "warning: claude plugin marketplace add failed — retry next start" >&2
   fi
-  for p in context7 superpowers github mysql redis-development playwright; do
+  # 注意：官方 marketplace 无通用 mysql 插件，需要时另行评估
+  for p in context7 superpowers github redis-development playwright; do
     if [ -d "$HOME/.claude/plugins/cache/claude-plugins-official/$p" ]; then
       continue
     fi

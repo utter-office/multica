@@ -132,7 +132,9 @@ ENV PATH="/root/.local/bin:${PATH}"
 RUN CI=true claude --version
 
 # 预装 Claude Code 官方插件（marketplace: anthropics/claude-plugins-official）：
-# context7 / superpowers / github / mysql / redis-development / playwright。
+# context7 / superpowers / github / redis-development / playwright。
+# 注意：该 marketplace 没有通用 mysql 插件（catalog 中 mysql 命中均属
+# planetscale 云技能）；需要 MySQL 能力时另行评估（apt mysql-client 或 PlanetScale）。
 # 版本跟随 marketplace HEAD——每次镜像 tag 构建即当时最新，与 claude/dsh 的
 # rolling 策略一致。构建期需访问 github（CI runner 满足）。
 # /root/.claude 在 compose 里被 named volume 遮蔽时，由 entrypoint.sh 幂等补装。
@@ -140,7 +142,6 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
     && claude plugin install -y context7@claude-plugins-official \
     && claude plugin install -y superpowers@claude-plugins-official \
     && claude plugin install -y github@claude-plugins-official \
-    && claude plugin install -y mysql@claude-plugins-official \
     && claude plugin install -y redis-development@claude-plugins-official \
     && claude plugin install -y playwright@claude-plugins-official
 
@@ -176,12 +177,11 @@ RUN npm install -g @deepseek-ai/dsh
 
 RUN CI=true claude --version
 
-# 预装 Claude Code 官方插件（同 claude stage，见上；marketplace: claude-plugins-official）
+# 预装 Claude Code 官方插件（同 claude stage 清单，见上；marketplace: claude-plugins-official）
 RUN claude plugin marketplace add anthropics/claude-plugins-official \
     && claude plugin install -y context7@claude-plugins-official \
     && claude plugin install -y superpowers@claude-plugins-official \
     && claude plugin install -y github@claude-plugins-official \
-    && claude plugin install -y mysql@claude-plugins-official \
     && claude plugin install -y redis-development@claude-plugins-official \
     && claude plugin install -y playwright@claude-plugins-official
 
