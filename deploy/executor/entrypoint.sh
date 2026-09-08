@@ -14,6 +14,25 @@ if ! gh auth status >/dev/null 2>&1; then
   echo "warning: gh auth status failed — 检查 GH_TOKEN 是否有效" >&2
 fi
 
+# Claude Code 官方插件幂等 seed（claude/full 变体才有 claude，command -v 先行判断）。
+# 镜像构建时已把插件 bake 进 /root/.claude，但 compose 的 executor_claude named volume
+# 在卷已存在时会遮蔽 bake 内容（copy-up 只在卷首次创建为空时发生），
+# 所以这里按 cache 目录存在性逐插件补装；失败仅告警，下次容器启动重试。
+if command -v claude >/dev/null 2>&1; then
+  if [ ! -d "$HOME/.claude/plugins/marketplaces/claude-plugins-official" ]; then
+    claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 \
+      || echo "warning: claude plugin marketplace add failed — retry next start" >&2
+  fi
+  for p in context7 superpowers github mysql redis-development playwright; do
+    if [ -d "$HOME/.claude/plugins/cache/claude-plugins-official/$p" ]; then
+      continue
+    fi
+    claude plugin install -y "$p@claude-plugins-official" >/dev/null 2>&1 \
+      && echo "claude plugin $p installed" \
+      || echo "warning: claude plugin $p install failed — retry next start" >&2
+  done
+fi
+
 # DeepSeek Harness multica profile（幂等：dsh 存在且 probe 通过则跳过）。
 # base 镜像可能不含 dsh（claude-only variant），用 command -v 先行判断。
 # /root/.dsh 不在持久化卷内，容器重建后需重新安装。
