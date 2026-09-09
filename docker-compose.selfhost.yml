@@ -251,11 +251,16 @@ services:
       - executor_config:/root/.multica
       - executor_workspaces:/workspaces
       - executor_claude:/root/.claude
-    # bubblewrap needs namespace syscalls Docker's default seccomp blocks.
-    # The container is a dedicated execution sandbox; bwrap then enforces the
-    # per-task workspace-write sandbox inside it.
+    # bubblewrap needs namespace syscalls Docker's default seccomp blocks,
+    # and CAP_SYS_ADMIN in the bounding set: a fresh user namespace cannot
+    # grant capabilities the bounding set lacks, so bwrap's user-ns ->
+    # mount-ns sequence fails with EPERM without it (observed on Alibaba
+    # Cloud Linux 3 hosts). The container is a dedicated execution sandbox;
+    # bwrap then enforces the per-task workspace-write sandbox inside it.
     security_opt:
       - seccomp=unconfined
+    cap_add:
+      - SYS_ADMIN
     restart: unless-stopped
 
 volumes:
