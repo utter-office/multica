@@ -104,8 +104,7 @@ ENV TZ=Asia/Shanghai \
 VOLUME ["/workspaces", "/root/.multica"]
 
 COPY deploy/executor/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY deploy/executor/patch-dsh-env-scrub.sh /usr/local/bin/patch-dsh-env-scrub.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/patch-dsh-env-scrub.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # tini 保证容器停止时 daemon 收到 SIGTERM 优雅退出
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
@@ -150,17 +149,33 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
 VOLUME ["/root/.claude"]
 
 # ═══════════════════════════════════════════════════════════════════════════
+# dsh-runtime — @multica-ai/dsh-runtime（utter-office 公开 fork，ref pin）
+# 官方修复载体（MUL-6186）：运行时对 dsh-subprocess 的凭证剥除做实例级
+# MULTICA_TOKEN 豁免，取代对第三方 node_modules 的静态 sed 补丁。
+# ═══════════════════════════════════════════════════════════════════════════
+FROM ${BASE_IMAGE} AS dsh-runtime
+
+ARG DSH_RUNTIME_REPO=https://github.com/utter-office/dsh-multica-runtime.git
+ARG DSH_RUNTIME_REF=e29aae228449dfe50e88af60ef4281e38ca44e2a
+RUN git clone --quiet "${DSH_RUNTIME_REPO}" /opt/multica-dsh-runtime \
+    && git -C /opt/multica-dsh-runtime checkout --quiet "${DSH_RUNTIME_REF}" \
+    && rm -rf /opt/multica-dsh-runtime/.git \
+    && cd /opt/multica-dsh-runtime \
+    && pnpm install --frozen-lockfile --quiet \
+    && pnpm build \
+    && rm -rf node_modules/.cache
+
+# ═══════════════════════════════════════════════════════════════════════════
 # dsh — base + DeepSeek Harness（DeepSeek 官方发布渠道就是 npm 包，保持 npm）
 # ═══════════════════════════════════════════════════════════════════════════
 FROM ${BASE_IMAGE} AS dsh
 
-# DeepSeek Harness（developer preview）。版本 pin：patch-dsh-env-scrub.sh 的
-# 锚点断言按此版本的文件结构校验，漂移的 dsh 会 fail 构建而非静默复发；
-# 升版本 = 改 DSH_VERSION + 重建（断言会告诉你文件结构是否变了）。
-# multica profile 由 entrypoint 幂等安装。
+# DeepSeek Harness（developer preview）。版本 pin 防滚动漂移；升版本 =
+# 改 DSH_VERSION + 重建。multica profile 由 entrypoint 从 /opt/multica-dsh-runtime
+# 内容幂等安装（见 entrypoint.sh）。
 ARG DSH_VERSION=0.1.2-rc.1
-RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" \
-    && /usr/local/bin/patch-dsh-env-scrub.sh
+RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}"
+COPY --from=dsh-runtime /opt/multica-dsh-runtime /opt/multica-dsh-runtime
 
 # dsh profile/会话卷（runtime 专属；/root/.dsh 含 multica profile，非持久化则 entrypoint 重装）
 VOLUME ["/root/.dsh"]
@@ -176,10 +191,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION}"
 ENV DISABLE_AUTOUPDATER=1
 ENV PATH="/root/.local/bin:${PATH}"
 
-# dsh（npm 包，同上，版本 pin 同 dsh stage）；pnpm 已在 base
+# dsh（npm 包，同上，版本 pin 同 dsh stage）+ dsh-multica-runtime；pnpm 已在 base
 ARG DSH_VERSION=0.1.2-rc.1
-RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" \
-    && /usr/local/bin/patch-dsh-env-scrub.sh
+RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}"
+COPY --from=dsh-runtime /opt/multica-dsh-runtime /opt/multica-dsh-runtime
 
 RUN CI=true claude --version
 

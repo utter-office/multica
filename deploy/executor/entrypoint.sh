@@ -34,13 +34,20 @@ if command -v claude >/dev/null 2>&1; then
   done
 fi
 
-# DeepSeek Harness multica profile（幂等：dsh 存在且 probe 通过则跳过）。
-# base 镜像可能不含 dsh（claude-only variant），用 command -v 先行判断。
-# /root/.dsh 不在持久化卷内，容器重建后需重新安装。
-if command -v dsh >/dev/null 2>&1 && ! dsh --profile multica --probe >/dev/null 2>&1; then
-  echo "installing dsh multica profile (dsh-profile-multica)..."
-  dsh plugin --profile multica add dsh-profile-multica >/dev/null 2>&1 \
-    || echo "warning: dsh multica profile install failed — dsh runtime unavailable" >&2
+# DeepSeek Harness multica profile。按内容幂等：profile 必须携带
+# @multica-ai/dsh-runtime（MUL-6186 修复载体，负责把 mat_ 任务 token 窄转发
+# 穿过 dsh 的凭证剥除），旧版 dsh-profile-multica（无豁免）若残留在匿名卷里
+# 会被移除。base 镜像可能不含 dsh（claude-only variant），用 command -v 先行
+# 判断；/opt/multica-dsh-runtime 仅在 dsh/full 变体镜像内存在。
+if command -v dsh >/dev/null 2>&1 && [ -d /opt/multica-dsh-runtime ]; then
+  if [ ! -d /root/.dsh/profiles/multica/node_modules/@multica-ai/dsh-runtime ]; then
+    echo "installing dsh multica profile (@multica-ai/dsh-runtime)..."
+    dsh plugin --profile multica remove dsh-profile-multica >/dev/null 2>&1 || true
+    dsh plugin --profile multica add /opt/multica-dsh-runtime >/dev/null 2>&1 \
+      || echo "warning: dsh multica profile install failed — dsh runtime unavailable" >&2
+  fi
+  dsh --profile multica --probe >/dev/null 2>&1 \
+    || echo "warning: dsh multica profile probe failed — check /opt/multica-dsh-runtime" >&2
 fi
 
 # 启动 daemon（--foreground：daemon start 默认后台化会让容器主进程退出，
