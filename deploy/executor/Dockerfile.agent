@@ -161,7 +161,7 @@ RUN git clone --quiet "${DSH_RUNTIME_REPO}" /opt/multica-dsh-runtime \
     && git -C /opt/multica-dsh-runtime checkout --quiet "${DSH_RUNTIME_REF}" \
     && rm -rf /opt/multica-dsh-runtime/.git \
     && cd /opt/multica-dsh-runtime \
-    && pnpm install --frozen-lockfile --quiet \
+    && pnpm install --frozen-lockfile \
     && pnpm build \
     && rm -rf node_modules/.cache
 
