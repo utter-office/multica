@@ -104,7 +104,8 @@ ENV TZ=Asia/Shanghai \
 VOLUME ["/workspaces", "/root/.multica"]
 
 COPY deploy/executor/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY deploy/executor/patch-dsh-env-scrub.sh /usr/local/bin/patch-dsh-env-scrub.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/patch-dsh-env-scrub.sh
 
 # tini 保证容器停止时 daemon 收到 SIGTERM 优雅退出
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
@@ -153,10 +154,13 @@ VOLUME ["/root/.claude"]
 # ═══════════════════════════════════════════════════════════════════════════
 FROM ${BASE_IMAGE} AS dsh
 
-# DeepSeek Harness（developer preview，迭代快；如需锁定版本：
-# npm install -g @deepseek-ai/dsh@<version>）。pnpm 已在 base。
+# DeepSeek Harness（developer preview）。版本 pin：patch-dsh-env-scrub.sh 的
+# 锚点断言按此版本的文件结构校验，漂移的 dsh 会 fail 构建而非静默复发；
+# 升版本 = 改 DSH_VERSION + 重建（断言会告诉你文件结构是否变了）。
 # multica profile 由 entrypoint 幂等安装。
-RUN npm install -g @deepseek-ai/dsh
+ARG DSH_VERSION=0.1.2-rc.1
+RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" \
+    && /usr/local/bin/patch-dsh-env-scrub.sh
 
 # dsh profile/会话卷（runtime 专属；/root/.dsh 含 multica profile，非持久化则 entrypoint 重装）
 VOLUME ["/root/.dsh"]
@@ -172,8 +176,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION}"
 ENV DISABLE_AUTOUPDATER=1
 ENV PATH="/root/.local/bin:${PATH}"
 
-# dsh（npm 包，同上）；pnpm 已在 base
-RUN npm install -g @deepseek-ai/dsh
+# dsh（npm 包，同上，版本 pin 同 dsh stage）；pnpm 已在 base
+ARG DSH_VERSION=0.1.2-rc.1
+RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" \
+    && /usr/local/bin/patch-dsh-env-scrub.sh
 
 RUN CI=true claude --version
 
