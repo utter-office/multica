@@ -68,6 +68,29 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go
     && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
     && go version
 
+# JDK 21（Temurin）+ Maven：Java 仓库（geoclar-java 等）任务的基础环境。
+# 此前缺失导致 agent 在任务里自行下载：adoptium 直连在 SIT 网络下 ~50KB/s
+# 白跑 550s 超时，再探测镜像重下 JDK/Maven（exe-09 实测约 12 分钟/容器）。
+# 构建期在 GitHub runner 拉取（adoptium release / dlcdn 均快），镜像经 ACR
+# 回源；版本 pin + 校验和，与上方 Go 工具链同模式。
+ARG TEMURIN_RELEASE=jdk-21.0.12.1%2B1
+ARG TEMURIN_VERSION=21.0.12.1_1
+ARG TEMURIN_SHA256=ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94
+ARG MAVEN_VERSION=3.9.16
+ARG MAVEN_SHA512=831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6
+RUN curl -fsSL "https://github.com/adoptium/temurin21-binaries/releases/download/${TEMURIN_RELEASE}/OpenJDK21U-jdk_x64_linux_hotspot_${TEMURIN_VERSION}.tar.gz" -o /tmp/jdk.tar.gz \
+    && echo "${TEMURIN_SHA256}  /tmp/jdk.tar.gz" | sha256sum -c - \
+    && mkdir -p /opt/java && tar -C /opt/java --strip-components=1 -xzf /tmp/jdk.tar.gz \
+    && rm /tmp/jdk.tar.gz \
+    && curl -fsSL "https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o /tmp/maven.tar.gz \
+    && echo "${MAVEN_SHA512}  /tmp/maven.tar.gz" | sha512sum -c - \
+    && mkdir -p /opt/maven && tar -C /opt/maven --strip-components=1 -xzf /tmp/maven.tar.gz \
+    && rm /tmp/maven.tar.gz \
+    && java -version && mvn -v
+
+# Maven mirror 预置：公共依赖走阿里云，osgeo 等老仓库直连例外（见文件注释）。
+COPY deploy/executor/maven-settings.xml /root/.m2/settings.xml
+
 # pnpm 提升到 base：本仓库 pnpm workspace 与 dsh 的 plugin 管理都要用，
 # 所有变体（含 claude）继承，不再只在 dsh/full 里装。
 RUN npm install -g pnpm
@@ -95,10 +118,13 @@ RUN echo "=== playwright: pre-flight ===" \
     && du -sh "${PLAYWRIGHT_BROWSERS_PATH}"
 
 # 环境：时区/编码、任务工作目录、关闭 daemon 自动更新（避免拉到官方新版本破坏版本匹配）
+# JAVA_HOME/PATH：JDK 与 Maven 开箱可用，任务命令不再需要 export 前缀
 ENV TZ=Asia/Shanghai \
     LANG=C.UTF-8 \
     MULTICA_WORKSPACES_ROOT=/workspaces \
-    MULTICA_DAEMON_AUTO_UPDATE=false
+    MULTICA_DAEMON_AUTO_UPDATE=false \
+    JAVA_HOME=/opt/java \
+    PATH="/opt/java/bin:/opt/maven/bin:${PATH}"
 
 # 持久化：daemon 配置/登录态、任务工作目录（runtime 专属卷由 variant 声明）
 VOLUME ["/workspaces", "/root/.multica"]

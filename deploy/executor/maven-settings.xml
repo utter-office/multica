@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 预置 Maven settings（烘焙进 executor 镜像的 /root/.m2/settings.xml）。
+     背景（exe-09，UTTE-35）：agent 在任务里自己摸索镜像配置，首次写成
+     mirrorOf=* 误伤项目自带的 repo.osgeo.org（GeoTools 依赖），浪费约
+     6 分钟诊断 + 两次 BUILD FAILURE 重跑。正确口径：公共依赖走阿里云
+     加速，external:* 之外的老仓库（osgeo 等）保持直连例外。 -->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>aliyun-public</id>
+      <mirrorOf>external:*,!osgeo</mirrorOf>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>
