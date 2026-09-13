@@ -115,14 +115,75 @@ curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:${FRONTEND_PORT:-3000
 ## 升级与回滚
 
 ```bash
+cd /www/server/panel/data/compose/multica
+# 以下命令一律显式 -f：不带 -f 时 compose 默认取 docker-compose.yaml，
+# 会把 postgres 一并重建并打上另一个文件名标签，导致编排视图报错（见下文）。
+
 # 升级前备份（必做）：
-docker exec $(docker compose ps -q postgres) pg_dump -U multica -d multica > multica-backup-$(date +%F).sql
+docker exec $(docker compose -f docker-compose.selfhost.yml ps -q postgres) \
+  pg_dump -U multica -d multica > multica-backup-$(date +%F).sql
 
 # 升级：改 .env 中 MULTICA_IMAGE_TAG 为新 tag（或保持分支 tag）后
-docker compose pull && docker compose up -d
+# 服务列表与 deploy-sit.sh 一致：postgres 固定镜像、不参与发版，故不列入
+docker compose -f docker-compose.selfhost.yml pull backend frontend executor
+docker compose -f docker-compose.selfhost.yml up -d --force-recreate backend frontend executor
 # 等待 /readyz 返回 ok（迁移自动执行）
 
 # 回滚：把 MULTICA_IMAGE_TAG 指回旧 tag，重复上面两步
+```
+
+## 宝塔面板运维注意（SIT 实测）
+
+SIT 服务器上 multica 与 dev / prod / utter-office 共用同一个宝塔面板。面板「Docker → 编排」视图对 multica 有三个已知问题，**都只影响面板显示，不影响服务运行**（`/readyz` 与对外访问正常）。
+
+### 1. 编排视图报「`[<逗号拼接的路径列表>]` 文件不存在」
+
+面板把 `docker compose ls` 的 `ConfigFiles` 字段**直接当单个路径**送进 `os.path.exists()`（`mod/project/docker/composeMod.py:217`）。该字段在项目内**各容器的 `com.docker.compose.project.config_files` 标签不一致**时是逗号拼接的多文件串，作为路径必然不存在。
+
+**成因**：`deploy-sit.sh` 中 `SERVICES="backend frontend executor"` —— postgres 固定镜像、不参与每次发版重建，因此它一直保留**初次创建时**的文件名标签。若 postgres 当初是用默认文件名创建的，就会与其余三个容器分道扬镳。
+
+**硬性约束**：`/www/server/panel/data/compose/multica/` 下**所有**容器必须持有相同的 `config_files` 标签。所以：
+
+- 一切 compose 操作都带 `-f docker-compose.selfhost.yml`，**绝不**在该目录裸跑 `docker compose`
+- 该目录下**不再保留默认文件名**。原先那份与 `selfhost.yml` 逐字节相同的 `docker-compose.yaml` 副本已于 2026-09-13 改名为 `docker-compose.yaml.bak-*`，因此裸跑 `docker compose` 会直接报 `no configuration file provided: not found`，而不是静默按另一个文件名重建、埋下漂移。**不要把默认文件名放回去**
+
+**修复**（把漂移的容器按规范文件名重建，数据在 named volume 中不受影响）：
+
+```bash
+cd /www/server/panel/data/compose/multica && \
+docker compose -f docker-compose.selfhost.yml up -d --force-recreate postgres   # 换成实际漂移的服务
+```
+
+### 2. 编排视图容器列表空白（**不报错**）
+
+`docker-compose ps --format json` 对**没有任何端口映射**的容器输出 `"Publishers": null`。面板 `comMod.py` 的 `get_project_ps` 中，构造 `ports_data` 的循环无条件迭代该字段（同函数上方另一处却正确地判了 `None`），抛 `TypeError: 'NoneType' object is not iterable`；异常被外层 `except` 吞掉后返回 error，前端 `J(e.data,"array",[])` 兜底成 `[]` —— 于是列表空白且无任何提示。
+
+multica 的 `executor` 经 compose 网络直连 backend、不发布端口，是本服务器 4 个 compose 项目里唯一触发该 bug 的容器（dev / prod / utter-office 所有容器都发布了端口）。
+
+**这是面板自身缺陷，需在服务器上打一行本地补丁**。面板升级或 `bt` 菜单「修复面板」会覆盖它，**须重打**：
+
+```bash
+p=/www/server/panel/mod/project/docker/comMod.py
+cp -a "$p" "$p.bak-$(date +%Y%m%d%H%M%S)"
+/www/server/panel/pyenv/bin/python3 - <<'EOF'
+p = '/www/server/panel/mod/project/docker/comMod.py'
+old = 'for port in l["Publishers"]:'
+new = 'for port in (l["Publishers"] or []):'
+s = open(p, encoding='utf-8').read()
+assert s.count(old) == 1, 'already patched or structure changed'
+open(p, 'w', encoding='utf-8').write(s.replace(old, new))
+EOF
+/www/server/panel/pyenv/bin/python3 -m py_compile "$p" && bt reload
+```
+
+> 判据：容器列表**空白但无报错** = 补丁被覆盖了。注意用面板自带的 `pyenv/bin/python3`，不要用系统 python3。
+
+### 3. 面板日志视图泄漏子进程
+
+打开编排视图的日志后，websocket 断开时其 `docker-compose -f … logs -f` 子进程不被回收，实测可累积到 150+ 个。无害但无上限增长，可定期清理（仅影响正在刷新的日志视图，不影响容器）：
+
+```bash
+ps -eo pid,args --no-headers | grep -E '^ *[0-9]+ docker-compose -f .* logs -f' | awk '{print $1}' | xargs -r kill -TERM
 ```
 
 ## 数据持久化与危险操作
